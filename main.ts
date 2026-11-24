@@ -27,18 +27,18 @@ const MIN_BUY_LAMPORTS = 20_000_000n; // 0.02 SOL: smallest buy worth sending
 const WINDOW_SLOTS = 240; // tape lookback, ~96 s
 const MIN_AGE_SLOTS = 30; // ignore the very first seconds (bundle dumps)
 const MAX_ENTRY_AGE_SLOTS = 7_200; // stop chasing a coin after ~48 min
-const MIN_PRICE_UP = 0.08; // price must be up >= 8% from launch
+const MIN_PRICE_UP = 0.12; // price must be up >= 12% from launch
 const MAX_PRICE_UP = 1.5; // ... but not already up > 150% in the window
-const MIN_NET_IN_SOL = 0.3; // net SOL inflow (buys minus sells) in the window
+const MIN_NET_IN_SOL = 0.5; // net SOL inflow (buys minus sells) in the window
 const MIN_BUYS = 4; // buy trades in the window
 const MIN_BUYERS = 3; // distinct buying wallets in the window
 const NEAR_HIGH = 0.97; // price must sit within 3% of its young high
 const MAX_TOP_BUYER_SHARE = 0.6; // no single wallet may dominate the inflow
-const TAKE_PROFIT = 1.6; // sell everything at +60% on cost
-const STOP_LOSS = 0.8; // sell everything at -20% on cost
-const TRAIL_ARM = 1.25; // trailing stop arms at +25%
-const TRAIL_GIVEBACK = 0.88; // ... and fires after a 12% pullback from the peak
-const MAX_HOLD_SLOTS = 5_400; // sell after ~36 min held, whatever the price
+const TAKE_PROFIT = 2.5; // sell everything at +150% on cost
+const STOP_LOSS = 0.85; // sell everything at -15% on cost
+const TRAIL_ARM = 1.5; // trailing stop arms at +50%
+const TRAIL_GIVEBACK = 0.85; // ... and fires after a 15% pullback from the peak
+const MAX_HOLD_SLOTS = 10_800; // sell after ~72 min held, whatever the price
 const FADE_NET_SOL = -1.0; // sell when the window's net flow turns this negative
 const BIG_SELL_SOL = 1.5; // sell when one recorded sell is at least this big
 const MAX_SLIPPAGE_BPS = 10_000; // fills must land; never let slippage strand us
@@ -404,13 +404,13 @@ function decide(batch: BatchMsg): WireOrder[] {
     if (value > rec.peakValueLamports) rec.peakValueLamports = value;
 
     let sell = false;
-    if (value >= (cost * 16n) / 10n) sell = true; // take profit +60%
-    else if (value <= (cost * 8n) / 10n) sell = true; // stop loss -20%
+    if (value >= (cost * 25n) / 10n) sell = true; // take profit +150%
+    else if (value <= (cost * 85n) / 100n) sell = true; // stop loss -15%
     else if (
-      value >= (cost * 125n) / 100n &&
-      value <= (rec.peakValueLamports * 88n) / 100n
+      value >= (cost * 15n) / 10n &&
+      value <= (rec.peakValueLamports * 85n) / 100n
     ) {
-      sell = true; // trailing stop, armed at +25%, fires on a 12% pullback
+      sell = true; // trailing stop, armed at +50%, fires on a 15% pullback
     } else if (nowSlot - rec.entrySlot > MAX_HOLD_SLOTS) sell = true;
     else if (bigSellMints.has(mint)) sell = true;
     else {
