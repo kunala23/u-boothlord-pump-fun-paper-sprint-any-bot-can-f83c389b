@@ -37,13 +37,13 @@ const MIN_BUYS = 4; // buy trades in the window
 const MIN_BUYERS = 3; // distinct buying wallets in the window
 const NEAR_HIGH = 0.97; // price must sit within 3% of its young high
 const MAX_TOP_BUYER_SHARE = 0.6; // no single wallet may dominate the inflow
-const TAKE_PROFIT = 2.5; // sell everything at +150% on cost
-const STOP_LOSS = 0.85; // sell everything at -15% on cost
-const TRAIL_ARM = 1.5; // trailing stop arms at +50%
-const TRAIL_GIVEBACK = 0.85; // ... and fires after a 15% pullback from the peak
+const TAKE_PROFIT = 100.0; // effectively off: winners exit on the trailing stop, not a cap
+const STOP_LOSS = 0.85; // sell everything at -15% on cost: cut losers fast
+const TRAIL_ARM = 1.3; // trailing stop arms at +30%
+const TRAIL_GIVEBACK = 0.8; // ... and fires after a 20% pullback from the peak
 const MAX_HOLD_SLOTS = 10_800; // sell after ~72 min held, whatever the price
-const FADE_NET_SOL = -1.0; // sell when the window's net flow turns this negative
-const BIG_SELL_SOL = 1.5; // sell when one recorded sell is at least this big
+const FADE_NET_SOL = -2.0; // sell when the window's net flow turns this negative
+const BIG_SELL_SOL = 2.5; // sell when one recorded sell is at least this big
 const MAX_SLIPPAGE_BPS = 10_000; // fills must land; never let slippage strand us
 
 // Relaxed entry tiers, so a quiet stretch of the window can never leave us
@@ -423,22 +423,28 @@ function decide(batch: BatchMsg): WireOrder[] {
     if (value > rec.peakValueLamports) rec.peakValueLamports = value;
 
     let sell = false;
-    if (value >= (cost * 25n) / 10n) sell = true; // take profit +150%
-    else if (value <= (cost * 85n) / 100n) sell = true; // stop loss -15%
+    // Thresholds in hundredths, derived from the named constants above so
+    // the exit block can never drift away from them.
+    const tp100 = BigInt(Math.round(TAKE_PROFIT * 100));
+    const sl100 = BigInt(Math.round(STOP_LOSS * 100));
+    const arm100 = BigInt(Math.round(TRAIL_ARM * 100));
+    const give100 = BigInt(Math.round(TRAIL_GIVEBACK * 100));
+    if (value * 100n >= cost * tp100) { sell = true;; }
+    else if (value * 100n <= cost * sl100) { sell = true;; }
     else if (
-      value >= (cost * 15n) / 10n &&
-      value <= (rec.peakValueLamports * 85n) / 100n
+      value * 100n >= cost * arm100 &&
+      value * 100n <= rec.peakValueLamports * give100
     ) {
-      sell = true; // trailing stop, armed at +50%, fires on a 15% pullback
-    } else if (nowSlot - rec.entrySlot > MAX_HOLD_SLOTS) sell = true;
-    else if (bigSellMints.has(mint)) sell = true;
+      sell = true;;
+    } else if (nowSlot - rec.entrySlot > MAX_HOLD_SLOTS) { sell = true;; }
+    else if (bigSellMints.has(mint)) { sell = true;; }
     else {
       const c = curves.get(mint);
       if (c !== undefined) {
         pruneTape(c, nowSlot);
         let net = 0;
         for (const tr of c.tape) net += tr.signedSol;
-        if (net < FADE_NET_SOL) sell = true;
+        if (net < FADE_NET_SOL) { sell = true;; }
       }
     }
     if (sell && orders.length < hello.caps.max_orders_per_batch) {
