@@ -8,7 +8,10 @@
 // young high. It risks a fixed stake per coin, then gets out fast: a hard stop
 // below cost, a take-profit above it, a trailing stop once a winner is armed, a
 // time limit, and an exit when the tape turns into heavy selling or one big
-// seller dumps. One buy per coin, ever. Nothing here uses the clock, randomness,
+// seller dumps. One buy per coin, ever. Positions are valued by what selling
+// them into the bonding curve would actually net (constant-product output,
+// less curve fee and one tx fee), never by tokens times the mark price, which
+// ignores the price impact of the sale. Nothing here uses the clock, randomness,
 // the network, or any file: every decision comes from the batch stream, so two
 // runs on the same data answer byte for byte alike.
 //
@@ -161,6 +164,8 @@ interface Curve {
   lastPrice: number;
   highPrice: number;
   realQuote: bigint; // real SOL reserves, latest seen
+  vQuote: bigint; // virtual SOL reserves (lamports), latest seen
+  vToken: bigint; // virtual token reserves (base units), latest seen
   complete: boolean;
   tape: TapeTrade[];
 }
@@ -202,6 +207,8 @@ function curveFor(mint: string, slot: number): Curve {
       lastPrice: 0,
       highPrice: 0,
       realQuote: 0n,
+      vQuote: 0n,
+      vToken: 0n,
       complete: false,
       tape: [],
     };
@@ -215,6 +222,13 @@ function notePrice(c: Curve, price: number): void {
   if (c.firstPrice === 0) c.firstPrice = price;
   c.lastPrice = price;
   if (price > c.highPrice) c.highPrice = price;
+}
+
+/** Record the curve's latest virtual reserves (and its price) from one sighting. */
+function noteReserves(c: Curve, vQuote: string, vToken: string): void {
+  c.vQuote = BigInt(vQuote);
+  c.vToken = BigInt(vToken);
+  notePrice(c, priceOf(vQuote, vToken));
 }
 
 function pruneTape(c: Curve, nowSlot: number): void {
@@ -347,7 +361,7 @@ function decide(batch: BatchMsg): WireOrder[] {
     const c = curves.get(m.mint);
     if (c === undefined) continue;
     c.realQuote = BigInt(m.real_quote_reserves);
-    notePrice(c, priceOf(m.virtual_quote_reserves, m.virtual_token_reserves));
+    noteReserves(c, m.virtual_quote_reserves, m.virtual_token_reserves);
   }
   // Live positions from the account are the truth; drop held coins that are gone.
   const liveMints = new Set<string>();
@@ -362,11 +376,11 @@ function decide(batch: BatchMsg): WireOrder[] {
       const c = curveFor(e.mint, e.slot);
       c.createdSlot = e.slot;
       c.realQuote = 0n;
-      notePrice(c, priceOf(e.virtual_sol_reserves, e.virtual_token_reserves));
+      noteReserves(c, e.virtual_sol_reserves, e.virtual_token_reserves);
     } else if (e.event === "TradeEvent") {
       const c = curveFor(e.mint, e.slot);
       c.realQuote = BigInt(e.real_sol_reserves);
-      notePrice(c, priceOf(e.virtual_sol_reserves, e.virtual_token_reserves));
+      noteReserves(c, e.virtual_sol_reserves, e.virtual_token_reserves);
       const sol = Number(e.sol_amount) / 1e9;
       c.tape.push({
         slot: e.slot,
@@ -382,20 +396,25 @@ function decide(batch: BatchMsg): WireOrder[] {
   }
 
   // 2. Exits first: a coin that must go frees its slot for a new entry.
-  const marks = new Map<string, number>();
-  for (const m of batch.marks) {
-    marks.set(m.mint, priceOf(m.virtual_quote_reserves, m.virtual_token_reserves));
-  }
   for (const pos of batch.account.positions) {
     const mint = pos.mint;
     if (pendingSellMints.has(mint)) continue;
-    const price = marks.get(mint) ?? curves.get(mint)?.lastPrice ?? 0;
-    if (price <= 0) continue;
     const tokens = BigInt(pos.token_amount);
     const cost = BigInt(pos.cost_lamports);
     if (cost <= 0n || tokens <= 0n) continue;
-    // Marked value, in lamports: tokens * (SOL per token) * 1e9.
-    const value = BigInt(Math.floor(Number(tokens) * price * 1e9));
+    // Net proceeds of selling the whole position into the bonding curve:
+    // constant-product output, less the curve fee, less one tx fee. This is
+    // what the position is actually worth — not tokens times the mark price,
+    // which ignores the price impact of selling.
+    const c0 = curves.get(mint);
+    if (c0 === undefined || c0.vQuote <= 0n || c0.vToken <= 0n) continue;
+    const gross = (tokens * c0.vQuote) / (c0.vToken + tokens);
+    const curveFeeBps = BigInt(
+      hello.fees.protocol_bps_fallback + hello.fees.creator_bps_fallback,
+    );
+    const fee = txFee();
+    let value = (gross * (BPS_DENOM - curveFeeBps)) / BPS_DENOM;
+    value = value > fee ? value - fee : 0n;
     let rec = held.get(mint);
     if (rec === undefined) {
       rec = { mint, entrySlot: nowSlot, peakValueLamports: value };
