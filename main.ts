@@ -237,16 +237,6 @@ function buyCapLamports(c: Curve): bigint {
   );
 }
 
-function freeCash(): bigint {
-  let free = cash;
-  const fee = txFee();
-  for (const p of pending.values()) {
-    free -= fee;
-    if (p.side === "buy") free -= 0n; // buy amounts tracked below via pendingBuyMints
-  }
-  return free;
-}
-
 // Pending buy amounts are remembered alongside their client id so free cash
 // stays exact while orders are in flight.
 const pendingBuyAmounts = new Map<string, bigint>();
