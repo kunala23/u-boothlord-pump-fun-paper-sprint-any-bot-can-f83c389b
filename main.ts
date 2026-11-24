@@ -47,16 +47,16 @@ const MAX_SLIPPAGE_BPS = 10_000; // fills must land; never let slippage strand u
 // short of the 20-coin round-trip bar. The tiers only loosen the entry filter;
 // exits never change.
 const RELAX_AFTER_SLOTS = 10_000; // ~67 min in, if fewer than 5 coins bought...
-const RELAX_MIN_BUYS = 5;
+const RELAX_BELOW_BUYS = 5;
 const RELAX_PRICE_UP = 0.03;
 const RELAX_NET_IN_SOL = 0.15;
-const RELAX_MIN_BUYS = 3;
+const RELAX_MIN_BUY_TRADES = 3;
 const RELAX_MIN_BUYERS = 2;
 const RELAX2_AFTER_SLOTS = 30_000; // ~3.3 h in, if fewer than 10 coins bought...
-const RELAX2_MIN_BUYS = 10;
+const RELAX2_BELOW_BUYS = 10;
 const RELAX2_PRICE_UP = 0.0;
 const RELAX2_NET_IN_SOL = 0.1;
-const RELAX2_MIN_BUYS = 2;
+const RELAX2_MIN_BUY_TRADES = 2;
 const RELAX2_MIN_BUYERS = 1;
 
 // ---- wire shapes (minimal subset of agent-fun/replay/v2) ----
@@ -265,19 +265,19 @@ function entryThresholds(nowSlot: number): {
   minBuyers: number;
 } {
   const elapsed = firstSlot < 0 ? 0 : nowSlot - firstSlot;
-  if (elapsed >= RELAX2_AFTER_SLOTS && boughtCount < RELAX2_MIN_BUYS) {
+  if (elapsed >= RELAX2_AFTER_SLOTS && boughtCount < RELAX2_BELOW_BUYS) {
     return {
       minUp: RELAX2_PRICE_UP,
       minNet: RELAX2_NET_IN_SOL,
-      minBuys: RELAX2_MIN_BUYS,
+      minBuys: RELAX2_MIN_BUY_TRADES,
       minBuyers: RELAX2_MIN_BUYERS,
     };
   }
-  if (elapsed >= RELAX_AFTER_SLOTS && boughtCount < RELAX_MIN_BUYS) {
+  if (elapsed >= RELAX_AFTER_SLOTS && boughtCount < RELAX_BELOW_BUYS) {
     return {
       minUp: RELAX_PRICE_UP,
       minNet: RELAX_NET_IN_SOL,
-      minBuys: RELAX_MIN_BUYS,
+      minBuys: RELAX_MIN_BUY_TRADES,
       minBuyers: RELAX_MIN_BUYERS,
     };
   }
